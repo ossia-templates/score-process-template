@@ -42,4 +42,7 @@ score_generate_command_list_file(
 target_link_libraries(score_addon_my_process PUBLIC score_plugin_engine)
 
 # Target-specific options
-setup_score_plugin(score_addon_my_process)
+setup_score_addon(
+  TARGET score_addon_my_process
+  NAME "My Process"
+)
