@@ -29,11 +29,18 @@ if [[ ! -x "$RENAME" ]] ; then
   RENAME=$(command -v rename)
 fi
 
-RENAME_KIND=$($RENAME --help | grep -i PERLEXPR)
-if [[ "$RENAME_KIND" == "" ]]; then
+# Probe rather than read --help: Homebrew's rename takes the same perl
+# expression as perl-rename but never prints PERLEXPR, so parsing the help text
+# rejects a tool that would have worked.
+RENAME_PROBE=$(mktemp -d)
+: > "$RENAME_PROBE/probe_a"
+( cd "$RENAME_PROBE" && "$RENAME" 's/probe_a/probe_b/' probe_a ) >/dev/null 2>&1
+if [[ ! -e "$RENAME_PROBE/probe_b" ]]; then
+  rm -rf "$RENAME_PROBE"
   echo "Install perl-rename (sometimes called just 'rename')"
   exit 1
 fi
+rm -rf "$RENAME_PROBE"
 
 SED=/usr/bin/sed
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -41,7 +48,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     echo "Install gnu-sed"
     exit 1
   fi
-  SED=/usr/bin/gsed
+  SED=$(command -v gsed)
 fi
 
 
@@ -61,11 +68,20 @@ else
 fi
 
 mv "MyProcess" "$ADDON"
-$RENAME "s/my_process/$ADDON_LC/" **/*.{hpp,cpp,txt}
-$RENAME "s/MyProcess/$ADDON/" **/*.{hpp,cpp,txt}
-$SED -i "s/my_process/$ADDON_LC/g" **/*.{hpp,cpp,txt,json}
-$SED -i "s/MyProcess/$ADDON/g" **/*.{hpp,cpp,txt,json} release.sh
-$SED -i "s/my-process/$ADDON_LC_DASHES/g" **/*.{hpp,cpp,txt,json} release.sh
+# `shopt -s globstar` is a no-op on bash 3.2, which is still /bin/bash on macOS,
+# so `**/` matched one directory level and silently skipped every top-level file
+# -- CMakeLists.txt and the add-on's own sources among them. Walk with find.
+tpl_sources() {
+  find . -type f \( -name '*.hpp' -o -name '*.cpp' -o -name '*.txt' \) -not -path './.git/*'
+}
+
+tpl_sources | tr '\n' '\0' | xargs -0 $RENAME "s/my_process/$ADDON_LC/"
+tpl_sources | tr '\n' '\0' | xargs -0 $RENAME "s/MyProcess/$ADDON/"
+
+find . -type f \( -name '*.hpp' -o -name '*.cpp' -o -name '*.txt' -o -name '*.json' \) \
+     -not -path './.git/*' | tr '\n' '\0' \
+  | xargs -0 $SED -i "s/my_process/$ADDON_LC/g;s/MyProcess/$ADDON/g;s/my-process/$ADDON_LC_DASHES/g"
+[ -f release.sh ] && $SED -i "s/MyProcess/$ADDON/g;s/my-process/$ADDON_LC_DASHES/g" release.sh
 
 # addon.json also carries the placeholder as a display name, which no rename
 # above touches.
